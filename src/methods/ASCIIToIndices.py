@@ -1,0 +1,99 @@
+import numpy as np
+from metpy.units import units
+import metpy.calc as mpcalc
+from dask import delayed, compute
+import pandas as pd
+
+MISSING_VALUES = {999, 999.0, 9999, 9999.0, 99999, 99999.0}
+
+def read_cls_file(cls_path):
+    """
+    Read an NCAR / Aspen .cls sounding file.
+
+    Returns
+    -------
+    p : ndarray (hPa)
+    T : ndarray (degC)
+    Td : ndarray (degC)
+    """
+
+    with open(cls_path, "r") as f:
+        lines = f.readlines()
+
+    # Find the dashed separator line
+    data_start = None
+    for i, line in enumerate(lines):
+        if line.strip().startswith("------"):
+            data_start = i + 1
+            break
+
+    if data_start is None:
+        raise ValueError(f"Could not find data section in {cls_path}")
+
+    data = []
+    for line in lines[data_start:]:
+        parts = line.split()
+        if len(parts) < 5:
+            continue
+
+        try:
+            row = [float(x) for x in parts]
+        except ValueError:
+            continue
+
+        data.append(row)
+
+    if len(data) == 0:
+        return None, None, None
+
+    data = np.array(data)
+
+    # Column indices from header
+    # Time  Press  Temp  Dewpt ...
+    p = data[:, 1]
+    T = data[:, 2]
+    Td = data[:, 3]
+
+    # Mask Aspen missing values
+    def mask_missing(arr):
+        out = arr.astype(float)
+        for mv in MISSING_VALUES:
+            out[out == mv] = np.nan
+        return out
+
+    p = mask_missing(p)
+    T = mask_missing(T)
+    Td = mask_missing(Td)
+
+    return p, T, Td
+
+def compute_lcl_for_cls(cls_path):
+    p, T, Td = read_cls_file(cls_path)
+
+    if p is None:
+        return cls_path, np.nan, np.nan
+
+    p = p * units.hPa
+    T = T * units.celsius
+    Td = Td * units.celsius
+
+    mask = (
+        np.isfinite(p)
+        & np.isfinite(T)
+        & np.isfinite(Td)
+        & (p.magnitude > 100)   # sanity filter
+    )
+
+    if mask.sum() == 0:
+        return cls_path, np.nan, np.nan
+
+    # Surface = maximum pressure
+    idx = np.argmax(p[mask].magnitude)
+
+    p0 = p[mask][idx]
+    T0 = T[mask][idx]
+    Td0 = Td[mask][idx]
+
+    lcl_p, lcl_T = mpcalc.lcl(p0, T0, Td0)
+
+    return cls_path, lcl_p.magnitude, lcl_T.magnitude
