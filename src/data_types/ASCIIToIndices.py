@@ -1,8 +1,7 @@
 import numpy as np
 from metpy.units import units
 import metpy.calc as mpcalc
-from dask import delayed, compute
-import pandas as pd
+from ..methods.MetpyIndices import compute_metpy_indices
 
 MISSING_VALUES = {999, 999.0, 9999, 9999.0, 99999, 99999.0}
 
@@ -49,7 +48,6 @@ def read_cls_file(cls_path):
     data = np.array(data)
 
     # Column indices from header
-    # Time  Press  Temp  Dewpt ...
     p = data[:, 1]
     T = data[:, 2]
     Td = data[:, 3]
@@ -67,33 +65,38 @@ def read_cls_file(cls_path):
 
     return p, T, Td
 
-def compute_lcl_for_cls(cls_path):
+
+METHODS = {"metpy": compute_metpy_indices}
+
+def compute_indices_for_cls(cls_path):
+
     p, T, Td = read_cls_file(cls_path)
 
     if p is None:
         return cls_path, np.nan, np.nan
 
-    p = p * units.hPa
-    T = T * units.celsius
-    Td = Td * units.celsius
 
-    mask = (
-        np.isfinite(p)
-        & np.isfinite(T)
-        & np.isfinite(Td)
-        & (p.magnitude > 100)   # sanity filter
-    )
+    results = []
 
-    if mask.sum() == 0:
-        return cls_path, np.nan, np.nan
+    for method_name, method_fn in METHODS.items():
+        try:
+            out = method_fn(p, T, Td)
 
-    # Surface = maximum pressure
-    idx = np.argmax(p[mask].magnitude)
+            row = {
+                "method": method_name,
+                **out
+            }
 
-    p0 = p[mask][idx]
-    T0 = T[mask][idx]
-    Td0 = Td[mask][idx]
+        except Exception:
+            row = {
+                "method": method_name,
+                "lcl_p": None,
+                "lfc_p": None,
+                "el_p": None,
+                "cape": None,
+                "cin": None,
+            }
 
-    lcl_p, lcl_T = mpcalc.lcl(p0, T0, Td0)
+        results.append(row)
 
-    return cls_path, lcl_p.magnitude, lcl_T.magnitude
+    return results
