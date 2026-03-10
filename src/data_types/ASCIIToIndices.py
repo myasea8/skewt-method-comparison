@@ -1,6 +1,8 @@
 import numpy as np
 from metpy.units import units
 import metpy.calc as mpcalc
+import re
+from datetime import datetime
 from ..methods.MetpyIndices import compute_metpy_indices
 
 MISSING_VALUES = {999, 999.0, 9999, 9999.0, 99999, 99999.0}
@@ -35,6 +37,9 @@ def read_cls_file(cls_path):
         if len(parts) < 5:
             continue
 
+        if line.strip().startswith("------"):
+            break
+
         try:
             row = [float(x) for x in parts]
         except ValueError:
@@ -63,7 +68,41 @@ def read_cls_file(cls_path):
     T = mask_missing(T)
     Td = mask_missing(Td)
 
+    # Remove entries where pressure is nan
+    valid = ~np.isnan(p)
+    p = p[valid]
+    T = T[valid]
+    Td = Td[valid]
+
+    # Remove duplicate pressure levels
+    _, unique_idx = np.unique(p, return_index=True)
+    p = p[unique_idx]
+    T = T[unique_idx]
+    Td = Td[unique_idx]
+
+    # Sort pressure from greatest to least
+    sort_idx = np.argsort(p)[::-1]
+    p = p[sort_idx]
+    T = T[sort_idx]
+    Td = Td[sort_idx]
+
     return p, T, Td
+
+
+def extract_release_datetime(cls_path):
+    """
+    Extract UTC Release Time from a .cls file and return a datetime object.
+    """
+    with open(cls_path, 'r') as f:
+        for line in f:
+            if "UTC Release Time" in line:
+                # Extract the date-time portion after the colon
+                match = re.search(r":\s*(\d{4}),\s*(\d{2}),\s*(\d{2}),\s*(\d{2}):(\d{2}):(\d{2})", line)
+                if match:
+                    year, month, day, hour, minute, second = map(int, match.groups())
+                    return datetime(year, month, day, hour, minute, second)
+
+    raise ValueError("UTC Release Time not found in file.")
 
 
 METHODS = {"metpy": compute_metpy_indices}
@@ -71,32 +110,34 @@ METHODS = {"metpy": compute_metpy_indices}
 def compute_indices_for_cls(cls_path):
 
     p, T, Td = read_cls_file(cls_path)
+    datetime = extract_release_datetime(cls_path)
 
     if p is None:
         return cls_path, np.nan, np.nan
 
-
     results = []
 
     for method_name, method_fn in METHODS.items():
-        try:
-            out = method_fn(p, T, Td)
+        #try:
+        out = method_fn(p, T, Td)
 
-            row = {
-                "method": method_name,
-                **out
-            }
-
+        row = {
+            "method": method_name,
+            "datetime": datetime,
+            **out
+        }
+        """
         except Exception:
             row = {
                 "method": method_name,
+                "datetime": datetime,
                 "lcl_p": None,
                 "lfc_p": None,
                 "el_p": None,
                 "cape": None,
                 "cin": None,
             }
-
+        """
         results.append(row)
 
     return results
