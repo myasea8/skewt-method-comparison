@@ -4,6 +4,11 @@ import metpy.calc as mpcalc
 import re
 from datetime import datetime
 from ..methods.MetpyIndices import compute_metpy_indices
+from ..methods.SharppyIndices import compute_sharppy_indices
+
+#METHODS = {"metpy": compute_metpy_indices, "sharppy": compute_sharppy_indices}
+METHODS = {"metpy": compute_metpy_indices}
+
 
 MISSING_VALUES = {999, 999.0, 9999, 9999.0, 99999, 99999.0}
 
@@ -104,8 +109,6 @@ def extract_release_datetime(cls_path):
 
     raise ValueError("UTC Release Time not found in file.")
 
-
-METHODS = {"metpy": compute_metpy_indices}
 
 def compute_indices_for_cls(cls_path):
 
