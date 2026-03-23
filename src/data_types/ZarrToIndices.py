@@ -4,7 +4,9 @@ import zarr
 from datetime import datetime
 import re
 from ..methods.MetpyIndices import compute_metpy_indices
+from ..methods.SharppyIndices import compute_sharppy_indices
 
+#METHODS = {"metpy": compute_metpy_indices, "sharppy": compute_sharppy_indices}
 METHODS = {"metpy": compute_metpy_indices}
 
 
